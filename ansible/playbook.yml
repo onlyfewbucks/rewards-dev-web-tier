@@ -39,7 +39,7 @@
       copy:
         dest: /var/www/rewards/health
         content: |
-          {"service":"rewards","status":"ok","commit":"{{ lookup('env', 'GITHUB_SHA') | default('local-dev', true) }}","region":"eu-west-1"}
+          {"service":"rewards","status":"ok","commit":"{{ lookup('env', 'GITHUB_SHA') | default('local-dev', true) }}","region":"af-south-1"}
         owner: www-data
         group: www-data
         mode: '0644'
