@@ -11,5 +11,4 @@ variable "key_name" {
 variable "initial_app_secret_value" {
   type      = string
   sensitive = true
-  default   = "super-secret-runtime-token-123"
 }
