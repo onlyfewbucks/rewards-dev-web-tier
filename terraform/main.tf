@@ -202,7 +202,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "This metric monitors ec2 cpu utilization"
-  
+
   dimensions = {
     InstanceId = aws_instance.web.id
   }
