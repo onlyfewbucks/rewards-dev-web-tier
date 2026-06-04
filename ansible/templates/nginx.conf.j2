@@ -1,0 +1,17 @@
+server {
+    listen 80;
+    server_name _;
+
+    root /var/www/rewards;
+    index health;
+
+    location /health {
+        default_type application/json;
+        try_files $uri $uri/ /health;
+    }
+
+    # Block access to anything else to align with a locked down security profile
+    location / {
+        return 404;
+    }
+}

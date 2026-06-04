@@ -1,0 +1,80 @@
+---
+- name: Configure Dev Web Tier Components
+  hosts: all
+  become: yes
+  gather_facts: yes
+
+  tasks:
+    - name: Update apt cache and install baseline packages
+      apt:
+        name:
+          - nginx
+          - ufw
+          - curl
+        state: present
+        update_cache: yes
+
+    - name: Apply simple UFW firewall security baseline
+      ufw:
+        rule: allow
+        port: "{{ item }}"
+        proto: tcp
+      loop:
+        - '22'
+        - '80'
+
+    - name: Enable UFW firewall
+      ufw:
+        state: enabled
+
+    - name: Ensure Nginx app configuration directory exists
+      file:
+        path: /var/www/rewards
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
+    - name: Deploy the health JSON landing file
+      copy:
+        dest: /var/www/rewards/health
+        content: |
+          {"service":"rewards","status":"ok","commit":"{{ lookup('env', 'GITHUB_SHA') | default('local-dev', true) }}","region":"eu-west-1"}
+        owner: www-data
+        group: www-data
+        mode: '0644'
+
+    - name: Template Nginx server block configuration
+      template:
+        src: templates/nginx.conf.j2
+        dest: /etc/nginx/sites-available/rewards
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable Nginx rewards configuration site
+      file:
+        src: /etc/nginx/sites-available/rewards
+        dest: /etc/nginx/sites-enabled/rewards
+        state: link
+
+    - name: Remove default Nginx site configuration link
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+
+    - name: Simulate loading APP_SECRET to safe server location
+      copy:
+        dest: /etc/rewards_secret.env
+        content: "APP_SECRET={{ app_secret_env_var }}"
+        owner: root
+        group: www-data
+        mode: '0640'
+      notify: Restart Nginx
+
+  handlers:
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted
+        enabled: yes

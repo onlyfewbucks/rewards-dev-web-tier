@@ -1,0 +1,3 @@
+---
+# Passed via --extra-vars during pipeline runtime to demonstrate external secret consumption
+ app_secret_env_var: "{{ lookup('env', 'FETCHED_APP_SECRET') | default('fallback-secret-if-empty', true) }}"
