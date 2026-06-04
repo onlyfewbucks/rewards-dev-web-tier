@@ -3,7 +3,7 @@ terraform {
   required_providers {
     aws = {
       source  = "hashicorp/aws"
-      version = "~> 5.0"
+      version = "= 5.80.0"
     }
   }
   # For the assignment, local state is used to keep things simple, 
@@ -202,7 +202,7 @@ resource "aws_cloudwatch_metric_alarm" "cpu_high" {
   statistic           = "Average"
   threshold           = 80
   alarm_description   = "This metric monitors ec2 cpu utilization"
-  
+
   dimensions = {
     InstanceId = aws_instance.web.id
   }
