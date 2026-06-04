@@ -189,6 +189,7 @@ resource "aws_ssm_parameter" "app_secret" {
   description = "Application runtime secret managed out-of-band"
   type        = "SecureString"
   value       = var.initial_app_secret_value
+  overwrite   = true
 }
 
 # --- OBSERVABILITY (BASIC METRICS / ALARMS) ---
