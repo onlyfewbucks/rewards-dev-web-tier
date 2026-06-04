@@ -146,13 +146,15 @@ resource "aws_lb" "external" {
   load_balancer_type = "application"
   security_groups    = [aws_security_group.alb.id]
   subnets            = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+  overwrite          = true
 }
 
 resource "aws_lb_target_group" "web" {
-  name     = "rewards-dev-tg"
-  port     = 80
-  protocol = "HTTP"
-  vpc_id   = aws_vpc.main.id
+  name      = "rewards-dev-tg"
+  port      = 80
+  protocol  = "HTTP"
+  overwrite = true
+  vpc_id    = aws_vpc.main.id
 
   health_check {
     path                = "/health"
@@ -189,6 +191,7 @@ resource "aws_ssm_parameter" "app_secret" {
   description = "Application runtime secret managed out-of-band"
   type        = "SecureString"
   value       = var.initial_app_secret_value
+  overite     = true
 }
 
 # --- OBSERVABILITY (BASIC METRICS / ALARMS) ---
