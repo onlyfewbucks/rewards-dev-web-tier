@@ -45,6 +45,7 @@ jobs:
 
     env:
       AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      TF_VAR_acm_certificate_arn: ${{ secrets.ACM_CERTIFICATE_ARN }}
 
     steps:
       - name: Checkout Code Base
