@@ -84,7 +84,6 @@ Triggered automatically when changes are merged to `main`:
 4. **End-to-End Delivery Smoke Verification:** Executes an automated `curl` validation suite directly against the live, public ALB DNS endpoint to verify system accessibility and successful routing before marking the run as successful.
 
 ---
-
 ## 🛠️ Prerequisites & Setup
 
 ### Local Prerequisites
