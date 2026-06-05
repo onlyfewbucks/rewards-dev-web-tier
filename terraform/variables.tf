@@ -18,7 +18,11 @@ variable "acm_certificate_arn" {
     error_message = "Must be a valid ACM certificate ARN (e.g., arn:aws:acm:region:account:certificate/id)."
   }
 }
-
+variable "aws_key_pair_name" {
+  type        = string
+  sensitive   = true
+  description = "key pair"
+}
 variable "initial_app_secret_value" {
   type        = string
   sensitive   = true
