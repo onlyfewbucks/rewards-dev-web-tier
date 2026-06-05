@@ -34,7 +34,7 @@ jobs:
         run: terraform -chdir=terraform init
 
       - name: Generate Speculative Execution Plan
-        run: terraform -chdir=terraform plan -var="key_name=dummy-key"
+        run: terraform -chdir=terraform plan -var="aws_key_pair_name=dummy-key"
 
   deploy-dev:
     name: Apply Infrastructure & Run Configuration
