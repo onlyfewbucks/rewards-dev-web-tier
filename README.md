@@ -1,9 +1,3 @@
-Here is the updated README markdown.
-
-I have refactored it to completely eliminate the outdated **Ansible/SSH configuration engine** and replaced it with your modern **AWS Systems Manager (SSM) RunShellScript automation engine** over a highly secure network topology (handling the private subnet architecture and eliminating public SSH/Port 22 exposure).
-
----
-
 ```markdown
 # Infrastructure & Configuration Automation Pipeline
 
