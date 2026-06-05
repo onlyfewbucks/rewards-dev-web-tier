@@ -82,7 +82,6 @@ Triggered automatically when changes are merged to `main`:
 2. **State Output Ingestion:** Queries and exports critical provisioned metadata (such as the target `INSTANCE_ID` and public `ALB_URL`) straight into the runner's ephemeral environment.
 3. **SSM Native Configuration:** The runner calls the AWS SSM API to fire an atomic script payload directly on the private EC2 target. This bootstrap sequence updates system registries, installs `nginx`, maps the active `$GITHUB_SHA` context into a JSON health telemetry payload, and hot-loads a modular NGINX server block configuration.
 4. **End-to-End Delivery Smoke Verification:** Executes an automated `curl` validation suite directly against the live, public ALB DNS endpoint to verify system accessibility and successful routing before marking the run as successful.
-
 ---
 ## 🛠️ Prerequisites & Setup
 
