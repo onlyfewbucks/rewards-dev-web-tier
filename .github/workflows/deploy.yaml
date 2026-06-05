@@ -13,90 +13,89 @@ jobs:
     env:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-      AWS_DEFAULT_REGION: ${{secrets.AWS_DEFAULT_REGION}}
-      TF_VAR_initial_app_secret_value: ${{secrets.APP_SECRET }}
-      TF_RENAME_PROVIDERS: "1" # Instructs TF to automatically align provider namespaces if needed
-
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      TF_VAR_initial_app_secret_value: ${{ secrets.APP_SECRET }}
+      TF_VAR_acm_certificate_arn: ${{ secrets.ACM_CERTIFICATE_ARN }}
     steps:
       - name: Checkout Code Base
         uses: actions/checkout@v4
-
-      - name: Install and Setup Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
-          terraform_version: 1.8.0 # Upgraded to native stable version supporting new GPG key rings
-
-      - name: Validate Terraform Syntax Format
+          terraform_version: 1.8.0
+      - name: Terraform Format Check
         run: terraform -chdir=terraform fmt -check
-
-      - name: Initialize Working Directory
+      - name: Terraform Init
         run: terraform -chdir=terraform init
-
-      - name: Generate Speculative Execution Plan
-        run: terraform -chdir=terraform plan -var="key_name=dummy-key"
+      - name: Terraform Plan
+        run: terraform -chdir=terraform plan -var="aws_key_pair_name=dummy-key"
 
   deploy-dev:
-    name: Apply Infrastructure & Run Configuration
+    name: Apply Infrastructure & Configure EC2 via SSM
     needs: terraform-ci
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
+    
+    # 💥 FIXED: Added the missing TF_VAR variables so terraform apply doesn't prompt interactively
     env:
-      AWS_ACCESS_KEY_ID: ${{secrets.AWS_ACCESS_KEY_ID}}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY}}
-      AWS_DEFAULT_REGION: ${{secrets.AWS_DEFAULT_REGION}}
-      TF_VAR_initial_app_secret_value: ${{secrets.APP_SECRET}}
+      AWS_DEFAULT_REGION: ${{ secrets.AWS_DEFAULT_REGION }}
+      TF_VAR_initial_app_secret_value: ${{ secrets.APP_SECRET }}
+      TF_VAR_acm_certificate_arn: ${{ secrets.ACM_CERTIFICATE_ARN }}
 
     steps:
       - name: Checkout Code Base
         uses: actions/checkout@v4
 
-      - name: Configure SSH Private Key File
-        run: |
-          mkdir -p ~/.ssh
-          echo "${{ secrets.SSH_PRIVATE_KEY }}" > ~/.ssh/id_rsa
-          chmod 600 ~/.ssh/id_rsa
+      # ✅ AWS credentials (required for SSM + Terraform outputs)
+      - name: Configure AWS Credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_DEFAULT_REGION }}
 
-      - name: Install and Setup Terraform
+      - name: Setup Terraform
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: 1.8.0
 
-      - name: Initialize Working Directory
+      - name: Terraform Init
         run: terraform -chdir=terraform init
 
-      - name: Target Live Architecture Synchronization
-        id: apply
-        run: terraform -chdir=terraform apply -auto-approve -var="key_name=${{ secrets.AWS_KEY_PAIR_NAME }}"
+      - name: Terraform Apply
+        run: terraform -chdir=terraform apply -auto-approve -var="aws_key_pair_name=${{ secrets.AWS_KEY_PAIR_NAME }}"
 
-      - name: Extract Live Deployment Endpoint Strings
-        id: tf_outputs
+      # ✅ Get outputs from Terraform
+      - name: Get Terraform Outputs
         run: |
           cd terraform
-          echo "TARGET_IP=$(terraform output -raw instance_public_ip)" >> $GITHUB_ENV
           echo "ALB_URL=$(terraform output -raw alb_dns_name)" >> $GITHUB_ENV
+          echo "INSTANCE_ID=$(terraform output -raw instance_id)" >> $GITHUB_ENV
 
-      - name: Fetch Secret Out of Band from AWS SSM Parameter Store
+      # ✅ SSM: Install + configure nginx
+      - name: Configure EC2 via SSM
         run: |
-          FETCHED_SECRET=$(aws ssm get-parameter --name "/dev/rewards/APP_SECRET" --with-decryption --query "Parameter.Value" --output text)
-          echo "FETCHED_APP_SECRET=$FETCHED_SECRET" >> $GITHUB_ENV
+          aws ssm send-command \
+            --instance-ids "${{ env.INSTANCE_ID }}" \
+            --document-name "AWS-RunShellScript" \
+            --comment "Install nginx + configure health endpoint" \
+            --parameters 'commands=[
+              "set -e",
+              "sudo apt update -y",
+              "sudo apt install -y nginx",
+              "sudo systemctl enable nginx",
+              "sudo systemctl start nginx",
+              "sudo mkdir -p /var/www/rewards",
+              "echo \"{\\\"service\\\":\\\"rewards\\\",\\\"status\\\":\\\"ok\\\",\\\"commit\\\":\\\"'${{ github.sha }}'\\\",\\\"region\\\":\\\"${{ secrets.AWS_DEFAULT_REGION }}\\\"}\" | sudo tee /var/www/rewards/health",
+              "sudo rm -f /etc/nginx/sites-enabled/default",
+              "echo \"server { listen 80; server_name _; location /health { default_type application/json; alias /var/www/rewards/health; } }\" | sudo tee /etc/nginx/sites-available/rewards > /dev/null",
+              "sudo ln -sf /etc/nginx/sites-available/rewards /etc/nginx/sites-enabled/rewards",
+              "sudo nginx -t",
+              "sudo systemctl restart nginx"
+            ]'
 
-      - name: Set up Python for Ansible Engine
-        uses: actions/setup-python@v5
-        with:
-          python-version: '3.10'
-
-      - name: Install Active Ansible Engine Dependency
-        run: pip install ansible
-
-      - name: Run Ansible Playbook Orchestration
-        env:
-          ANSIBLE_HOST_KEY_CHECKING: "False"
+      # ✅ Smoke test via ALB
+      - name: Smoke Test Health Endpoint
         run: |
-          cd ansible
-          echo "${{ env.TARGET_IP }}" > hosts.ini
-          ansible-playbook -i hosts.ini playbook.yml -u ubuntu --private-key ~/.ssh/id_rsa
-
-      - name: Execute End-to-End Delivery Smoke Verification
-        run: |
-          echo "Verifying service delivery..."
-          curl --retry 5 --retry-delay 5 -v http://${{ env.ALB_URL }}/health
+          echo "Testing ALB: ${{ env.ALB_URL }}"
+          curl --retry 10 --retry-delay 5 http://${{ env.ALB_URL }}/health
