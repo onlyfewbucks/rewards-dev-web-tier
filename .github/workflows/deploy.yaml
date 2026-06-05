@@ -68,7 +68,7 @@ jobs:
 
       - name: Target Live Architecture Synchronization
         id: apply
-        run: terraform -chdir=terraform apply -auto-approve -var="key_name=${{ secrets.AWS_KEY_PAIR_NAME }}"
+        run: terraform -chdir=terraform apply -auto-approve -var="aws_key_pair_name=${{ secrets.AWS_KEY_PAIR_NAME }}"
 
       - name: Extract Live Deployment Endpoint Strings
         id: tf_outputs
