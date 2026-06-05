@@ -1,8 +1,9 @@
+```markdown
 # Rewards Platform Dev Web Tier - Senior Level Hardened
 
 This repository contains a **production-hardened, fully automated Infrastructure as Code (IaC) and Configuration Management pipeline** designed to provision and configure a secure, highly available web tier for the Rewards platform.
 
-The entire rollout lifecycle—from syntax validation and linting to infrastructure provisioning, out-of-band secrets management, centralized logging, and server orchestration—is driven entirely via **GitHub Actions**.
+The entire rollout lifecycle—from syntax validation and linting to infrastructure provisioning, out-of-band secrets management, centralized logging, and server orchestration—is driven entirely via **GitHub Actions** and agentless **AWS Systems Manager (SSM)** execution.
 
 ---
 
@@ -10,18 +11,17 @@ The entire rollout lifecycle—from syntax validation and linting to infrastruct
 
 This hardened version implements senior-level security and operational best practices:
 
-- ✅ **EC2 in Private Subnets** - Eliminates direct internet exposure; access via Systems Manager Session Manager
-- ✅ **NAT Gateway** - Enables secure outbound connectivity from private subnets
-- ✅ **HTTPS/TLS Support** - HTTP redirects to HTTPS; requires ACM certificate
-- ✅ **Restricted Security Groups** - Egress rules limited to DNS, HTTP/HTTPS only
-- ✅ **IAM Roles & Policies** - Fine-grained permissions for EC2, SSM, and CloudWatch
-- ✅ **CloudWatch Centralized Logging** - Application and system logs streamed to CloudWatch Logs
-- ✅ **Enhanced Observability** - CPU, status check, ALB health, disk, memory metrics
-- ✅ **S3 State Backend with DynamoDB Locking** - Prevents concurrent state corruption
-- ✅ **IMDSv2 Enforcement** - Hardened EC2 metadata access
-- ✅ **Terraform Input Validation** - Catches configuration errors before deployment
-- ✅ **GitHub Actions Hardening** - Secret masking, secure key handling, concurrency control
-- ✅ **Ansible Security** - `no_log` for secrets, UFW firewall, NGINX hardening
+- ✅ **EC2 in Private Subnets** - Eliminates direct internet exposure; access via Systems Manager Session Manager.
+- ✅ **Zero-SSH Operational Perimeter** - Port 22 is completely blocked; entirely eliminates private key distribution, rotation risks, and host exposure.
+- ✅ **Agentless Remote Configuration** - Replaces heavy configuration runtimes with clean, atomic AWS SSM `RunShellScript` API pipelines.
+- ✅ **NAT Gateway / VPC Endpoints** - Enables secure communication with AWS service endpoints and controlled outbound connectivity.
+- ✅ **HTTPS/TLS Support** - HTTP redirects to HTTPS via Application Load Balancer; requires an ACM certificate.
+- ✅ **Restricted Security Groups** - Ingress parameters strictly tied to the Application Load Balancer Security Group proxy.
+- ✅ **IAM Roles & Policies** - Fine-grained permissions matching strict Principle of Least Privilege for EC2, SSM, and CloudWatch.
+- ✅ **S3 State Backend with DynamoDB Locking** - Prevents concurrent state overwrite and data corruption.
+- ✅ **IMDSv2 Enforcement** - Hardened EC2 metadata access limits.
+- ✅ **Terraform Input Validation** - Catches configuration and schema errors before deployment.
+- ✅ **GitHub Actions Hardening** - Secret masking, secure environment variables, and automated concurrency control.
 
 ---
 
@@ -29,53 +29,35 @@ This hardened version implements senior-level security and operational best prac
 
 ### Network Architecture
 
+
 ```
-                    Internet
-                       ↓
-              [ALB - Public Subnets]
-              (Multi-AZ: 10.0.1.0/24, 10.0.2.0/24)
-                   ↙          ↘
-        [Private Subnet 1a]   [Private Subnet 1b]
-        (10.0.10.0/24)        (10.0.11.0/24)
-              ↓                     ↓
-        [EC2 Instance]       [EC2 Instance]
-      (No Public IP)        (No Public IP)
-              ↓                     ↓
-        [NAT Gateway in Public Subnet 1a]
+
+```
+                Internet
+                   ↓
+         [ALB - Public Subnets]
+         (Multi-AZ: 10.0.1.0/24, 10.0.2.0/24)
+               ↙       ↘
+    [Private Subnet 1a]   [Private Subnet 1b]
+    (10.0.10.0/24)        (10.0.11.0/24)
+          ↓                     ↓
+    [EC2 Instance]       [EC2 Instance]
+   (No Public IP)        (No Public IP)
+          ↓                     ↓
+    [NAT Gateway in Public Subnet 1a / VPC Endpoints]
+
+```
+
 ```
 
 ### Core Components
 
-- **Isolated Network (VPC):** Dedicated VPC (`10.0.0.0/16`) with:
-  - Public subnets for ALB and NAT Gateway (multi-AZ)
-  - Private subnets for EC2 instances (multi-AZ)
-  - Controlled egress for outbound connectivity
-
-- **Layer 7 Security Hardening:** Application Load Balancer isolates compute layer:
-  - EC2 instances accept traffic ONLY from ALB security group
-  - Direct internet access impossible
-  - SSH access via Systems Manager Session Manager (no SSH key exposure)
-
-- **Runtime Engine:** NGINX serves production-grade reverse-proxy web tier:
-  - Lightweight, efficient, production-tested
-  - Auto-restarts via systemd across reboots
-  - Hardened configuration (no server tokens, size limits)
-
-- **Out-of-Band Secrets Management:** Runtime secrets externalized in AWS Systems Manager Parameter Store:
-  - No credentials in source control
-  - Encrypted at rest with KMS
-  - Accessed via IAM roles (no long-lived credentials)
-
-- **Centralized Logging:** CloudWatch Logs aggregates:
-  - NGINX access and error logs
-  - System logs (syslog)
-  - Custom application metrics
-  - 30-day retention (configurable)
-
-- **State Backend:** S3 + DynamoDB for safe team deployments:
-  - Remote state prevents local overwrite issues
-  - DynamoDB locks prevent concurrent modifications
-  - Encrypted at rest with encryption enabled
+- **Isolated Network (VPC):** Dedicated VPC (`10.0.0.0/16`) with public subnets for the ALB/NAT Gateway and private subnets for EC2 instances across multiple Availability Zones.
+- **Layer 7 Security Hardening:** The Application Load Balancer completely isolates the compute layer. EC2 instances accept traffic **only** from the ALB security group. Direct external internet paths are impossible. 
+- **Agentless Orchestration Engine:** Instead of deploying custom configuration software or handling loose SSH keypairs, administrative bootstrap management is handled natively out-of-band via **AWS Systems Manager (SSM) RunShellScript**.
+- **Runtime Engine:** Native **NGINX** serves the production-grade reverse-proxy web tier. It runs natively, features minimal resource overhead, and handles host restarts cleanly via `systemd` while exposing a secure `/health` JSON telemetry endpoint.
+- **Out-of-Band Secrets Management:** Runtime tokens and parameters are externalized in the AWS Systems Manager Parameter Store as encrypted strings, mapped directly into the environment via target IAM Instance Profiles.
+- **State Backend:** S3 + DynamoDB for safe team deployments. Remote state prevents local overwrite issues, while DynamoDB locks prevent concurrent execution conflicts.
 
 ---
 
@@ -87,22 +69,19 @@ The automation lifecycle is split into two deterministic verification phases dri
 
 Triggered on every Pull Request to the `main` branch:
 
-1. **Code Quality Enforcement:** `terraform fmt -check` ensures strict formatting
-2. **Configuration Validation:** `terraform validate` catches schema errors early
-3. **Speculative Execution Plan:** `terraform plan` shows impending changes for review
-4. **Concurrency Control:** Prevents overlapping runs that could corrupt state
+1. **Code Quality Enforcement:** `terraform fmt -check` ensures canonical code layout styling.
+2. **Configuration Validation:** `terraform validate` catches syntactic and provider schema errors early.
+3. **Speculative Execution Plan:** `terraform plan` outputs a visible preview of impending infrastructure changes for review.
+4. **Concurrency Control:** Cancels overlapping workflow runs to protect state locks.
 
 ### Phase 2: Continuous Deployment (Main Branch Merge)
 
 Triggered automatically when changes are merged to `main`:
 
-1. **Infrastructure Application:** Terraform applies infrastructure topology
-2. **State Management:** S3 backend + DynamoDB locking ensures safe concurrent access
-3. **Out-of-Band Secrets Retrieval:** AWS SSM Parameter Store decrypts APP_SECRET dynamically
-4. **Ansible Configuration:** Dynamically generates inventory and configures compute layer
-5. **CloudWatch Agent Setup:** Streams logs and metrics to centralized location
-6. **End-to-End Smoke Tests:** Automated `curl` validation suite verifies service health
-7. **Secure Cleanup:** Removes SSH keys and sensitive inventory from runner
+1. **Infrastructure Application:** Directs Terraform to stand up or update the target AWS architecture topology.
+2. **State Output Ingestion:** Queries and exports critical provisioned metadata (such as the target `INSTANCE_ID` and public `ALB_URL`) straight into the runner's ephemeral environment.
+3. **SSM Native Configuration:** The runner calls the AWS SSM API to fire an atomic script payload directly on the private EC2 target. This bootstrap sequence updates system registries, installs `nginx`, maps the active `$GITHUB_SHA` context into a JSON health telemetry payload, and hot-loads a modular NGINX server block configuration.
+4. **End-to-End Delivery Smoke Verification:** Executes an automated `curl` validation suite directly against the live, public ALB DNS endpoint to verify system accessibility and successful routing before marking the run as successful.
 
 ---
 
@@ -110,10 +89,9 @@ Triggered automatically when changes are merged to `main`:
 
 ### Local Prerequisites
 
-- Terraform `>= 1.5.0`
-- Ansible `>= 2.14`
-- AWS CLI configured with appropriate credentials
-- ACM certificate created in AWS Console (for HTTPS)
+- Terraform `>= 1.8.0`
+- AWS CLI configured with appropriate administrator credentials.
+- **VPC Configuration:** Interface endpoints (`ssm`, `ssmmessages`, `ec2messages`) or an active NAT gateway attached to your private subnets to allow EC2 instances to pull payloads from the AWS Systems Manager API.
 
 ### AWS Setup (One-Time)
 
@@ -133,39 +111,34 @@ Triggered automatically when changes are merged to `main`:
      --server-side-encryption-configuration '{
        "Rules": [{"ApplyServerSideEncryptionByDefault": {"SSEAlgorithm": "AES256"}}]
      }'
-   ```
+
+```
 
 2. **Create DynamoDB table for state locking:**
-   ```bash
-   aws dynamodb create-table \
-     --table-name terraform-locks \
-     --attribute-definitions AttributeName=LockID,AttributeType=S \
-     --key-schema AttributeName=LockID,KeyType=HASH \
-     --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
-     --region af-south-1
-   ```
+```bash
+aws dynamodb create-table \
+  --table-name terraform-locks \
+  --attribute-definitions AttributeName=LockID,AttributeType=S \
+  --key-schema AttributeName=LockID,KeyType=HASH \
+  --provisioned-throughput ReadCapacityUnits=5,WriteCapacityUnits=5 \
+  --region af-south-1
 
-3. **Create ACM certificate for HTTPS:**
-   ```bash
-   # Go to AWS Console > ACM > Request Certificate
-   # Choose domain name and validation method
-   # Copy the certificate ARN for GitHub Secrets
-   ```
+```
+
+
 
 ### GitHub Secrets Setup
 
 Set these secrets in repository settings:
 
 | Secret | Example | Notes |
-|--------|---------|-------|
-| `AWS_ACCESS_KEY_ID` | `AKIAIOSFODNN7EXAMPLE` | IAM user with EC2, RDS, SSM, CloudWatch permissions |
-| `AWS_SECRET_ACCESS_KEY` | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | Keep secure, rotate regularly |
-| `AWS_DEFAULT_REGION` | `af-south-1` | Must match S3 bucket region |
-| `TF_STATE_BUCKET` | `rewards-dev-terraform-state` | S3 bucket created above |
-| `ACM_CERTIFICATE_ARN` | `arn:aws:acm:af-south-1:123456789:certificate/abc123` | ACM cert ARN from AWS Console |
-| `APP_SECRET` | `SuperSecureRandomString123!@#` | Min 16 chars, keep secure |
-| `SSH_PRIVATE_KEY` | (private key contents) | EC2 key pair private key for Ansible SSH |
-| `AWS_KEY_PAIR_NAME` | `rewards-dev-key` | EC2 key pair name in AWS |
+| --- | --- | --- |
+| `AWS_ACCESS_KEY_ID` | `AKIAIOSFODNN7EXAMPLE` | IAM user with EC2, ALB, SSM, and S3 permissions |
+| `AWS_SECRET_ACCESS_KEY` | `wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY` | Encrypted pipeline deployment credential |
+| `AWS_DEFAULT_REGION` | `af-south-1` | Must match S3 bucket target region |
+| `ACM_CERTIFICATE_ARN` | `arn:aws:acm:af-south-1:123456789:certificate/...` | ACM cert ARN for HTTPS listeners |
+| `APP_SECRET` | `SuperSecureRandomString123!@#` | Extracted out-of-band into Parameter Store |
+| `AWS_KEY_PAIR_NAME` | `rewards-dev-key` | Optional backup fallback identifier |
 
 ---
 
@@ -175,21 +148,14 @@ Set these secrets in repository settings:
 .
 ├── .github/
 │   └── workflows/
-│       └── deploy.yaml                 # GitHub Actions CI/CD pipeline
-├── .gitignore                          # Terraform/Ansible ignore patterns
+│       └── deploy.yaml                 # GitHub Actions CI/CD pipeline (SSM Engine)
+├── .gitignore                          # Terraform ignore patterns
 ├── README.md                           # This file
 ├── SOLUTION.md                         # Architecture & trade-off documentation
-├── ansible/
-│   ├── playbook.yml                    # NGINX, UFW, CloudWatch agent config
-│   ├── templates/
-│   │   ├── nginx.conf.j2               # NGINX server block config
-│   │   └── cloudwatch-config.json.j2   # CloudWatch agent config
-│   └── hosts.ini                       # Dynamic inventory (generated by CI/CD)
 └── terraform/
-    ├── main.tf                         # VPC, ALB, EC2, IAM, CloudWatch, S3 backend
-    ├── variables.tf                    # Input variables with validation
-    ├── output.tf                       # Outputs (ALB DNS, instance ID, cleanup)
-    └── .terraform.lock.hcl             # Terraform provider version lock
+    ├── main.tf                         # VPC, ALB, EC2, IAM roles, and state backend definitions
+    ├── variables.tf                    # Input variables with validation rules
+    └── output.tf                       # Dynamic resource exposures (ALB DNS, Instance ID)
 
 ```
 
@@ -199,275 +165,120 @@ Set these secrets in repository settings:
 
 ### Local Development (Non-Automated)
 
-If you want to test locally before pushing to GitHub:
+If you want to plan or test structural modifications locally before pushing to GitHub:
 
 ```bash
 # 1. Navigate to Terraform directory
 cd terraform
 
-# 2. Initialize Terraform (will use S3 backend)
+# 2. Initialize Terraform (S3 Backend integration)
 terraform init
 
 # 3. Plan infrastructure changes
-terraform plan -out=tfplan
+terraform plan -var="aws_key_pair_name=dummy-key" -out=tfplan
 
 # 4. Apply changes
 terraform apply tfplan
 
-# 5. Extract outputs
-terraform output -json
-
-# 6. Run Ansible playbook manually
-cd ../ansible
-ansible-playbook -i <EC2_PRIVATE_IP>, playbook.yml \
-  -u ubuntu \
-  -e "app_secret_env_var=$(aws ssm get-parameter --name /dev/rewards/APP_SECRET --with-decryption --query Parameter.Value --output text)" \
-  -e "log_group_name=/aws/ec2/rewards-dev/application" \
-  -e "aws_region=af-south-1" \
-  --private-key ~/.ssh/rewards-dev-key.pem
 ```
 
-### Automated Deployment (GitHub Actions)
+### Automated Deployment Sequence
 
 1. **Create a feature branch:**
-   ```bash
-   git checkout -b feature/update-web-tier
-   ```
+```bash
+git checkout -b feature/harden-nginx-config
 
-2. **Make infrastructure changes:**
-   ```bash
-   # Edit terraform/* files
-   git add terraform/
-   git commit -m "feat: update NGINX configuration"
-   ```
+```
+
+
+2. **Commit changes:**
+```bash
+git add terraform/
+git commit -m "feat: adjust NGINX internal health block schema"
+
+```
+
 
 3. **Push and create Pull Request:**
-   ```bash
-   git push origin feature/update-web-tier
-   # Create PR on GitHub
-   ```
+```bash
+git push origin feature/harden-nginx-config
 
-4. **Review Terraform plan in PR** - GitHub Actions will post plan output
+```
 
-5. **Merge to main** - CI/CD automatically deploys to dev environment
 
-6. **Monitor deployment** - Watch GitHub Actions logs for progress
+4. **Review Terraform plan in PR** -> GitHub Actions logs will append a speculative architectural change report.
+5. **Merge to main** -> Pipeline hooks automatically handle execution, deployment, out-of-band SSM configuration routing, and end-to-end smoke testing.
 
 ---
 
 ## 📊 Observability & Monitoring
 
-### CloudWatch Logs
+### Centralized Shell Verification
 
-Access centralized logs:
+Since instances are in a secure private subnet, interact with instances securely without an SSH key via the AWS SSM CLI plug-in:
 
 ```bash
-# View recent logs
-aws logs tail /aws/ec2/rewards-dev/application --follow
+# Start a interactive shell session inside the private subnet instance
+aws ssm start-session --target i-1234567890abcdef0
 
-# Search for errors
-aws logs filter-log-events \
-  --log-group-name /aws/ec2/rewards-dev/application \
-  --filter-pattern "ERROR"
-
-# Export logs to S3 for analysis
-aws logs create-export-task \
-  --log-group-name /aws/ec2/rewards-dev/application \
-  --from $(date -d '1 day ago' +%s)000 \
-  --to $(date +%s)000 \
-  --destination rewards-dev-logs \
-  --destination-prefix logs/
 ```
 
 ### CloudWatch Alarms
 
-Three alarms monitor health:
+Three default cloud alarms monitor the infrastructure health parameters:
 
-1. **CPU High** - Triggers if CPU > 80% for 2 minutes
-2. **Status Check Failed** - Triggers if EC2 fails system/instance status checks
-3. **ALB Unhealthy Hosts** - Triggers if targets become unhealthy
-
-View alarms:
-
-```bash
-aws cloudwatch describe-alarms --alarm-names \
-  rewards-dev-ec2-high-cpu \
-  rewards-dev-ec2-status-check \
-  rewards-dev-alb-unhealthy-hosts
-```
-
-### Custom Metrics
-
-CloudWatch agent collects:
-
-- CPU (idle, iowait, guest time)
-- Disk (usage %)
-- Memory (usage %)
-- Network (TCP established, time_wait)
-- Processes (running, sleeping)
+1. **CPU High:** Triggers if resource utilization exceeds 80% for 2 consecutive minutes.
+2. **Status Check Failed:** Triggers if the hardware host or compute virtualization layer fails structural hypervisor metrics.
+3. **ALB Unhealthy Hosts:** Triggers immediately if the target instance drops out of active target group verification windows.
 
 ---
 
 ## 🧹 Cleanup Instructions
 
-To destroy all resources and prevent AWS charges:
+To tear down all resources and prevent unnecessary AWS charges:
 
 ```bash
-# 1. Destroy infrastructure via Terraform
-terraform -chdir=terraform destroy -auto-approve
+# 1. Destroy core infrastructure components
+terraform -chdir=terraform destroy -auto-approve -var="aws_key_pair_name=dummy-key"
 
-# 2. Delete S3 state bucket
+# 2. Delete S3 state bucket tracking files
 aws s3 rm s3://rewards-dev-terraform-state --recursive
 aws s3api delete-bucket --bucket rewards-dev-terraform-state --region af-south-1
 
 # 3. Delete DynamoDB locks table
 aws dynamodb delete-table --table-name terraform-locks --region af-south-1
 
-# 4. Clean local Terraform state
-rm -rf terraform/.terraform terraform/terraform.tfstate* terraform/.terraform.lock.hcl
-
-# 5. (Optional) Delete ACM certificate
-aws acm delete-certificate --certificate-arn arn:aws:acm:af-south-1:123456789:certificate/abc123
 ```
 
 ---
 
 ## 📈 Production Promotion Strategy
 
-To transition this dev setup to production:
+To scale this development baseline into an isolated enterprise framework:
 
-### 1. **State Isolation**
-   - Create separate S3 buckets: `rewards-prod-terraform-state`
-   - Create separate DynamoDB table: `terraform-locks-prod`
-   - Use environment-specific workspaces or separate code paths
-
-### 2. **Environment Variables**
-   ```bash
-   # environments/dev/terraform.tfvars
-   aws_region = "af-south-1"
-   initial_app_secret_value = var.dev_secret
-   
-   # environments/prod/terraform.tfvars
-   aws_region = "eu-west-1"  # Different region for disaster recovery
-   initial_app_secret_value = var.prod_secret
-   ```
-
-### 3. **Multi-AZ Auto Scaling**
-   ```hcl
-   # Replace single EC2 with ASG
-   resource "aws_autoscaling_group" "prod" {
-     min_size             = 3
-     max_size             = 10
-     desired_capacity     = 3
-     vpc_zone_identifier  = [aws_subnet.private_1.id, aws_subnet.private_2.id]
-     target_group_arns    = [aws_lb_target_group.web.arn]
-   }
-   ```
-
-### 4. **CI/CD Approval Gates**
-   ```yaml
-   # .github/workflows/deploy.yaml
-   - name: Manual Approval for Production
-     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-     uses: trstringer/manual-approval@main
-     with:
-       secret: ${{ github.TOKEN }}
-       approvers: platform-team
-   ```
-
-### 5. **Separate Credentials**
-   - Create separate AWS IAM user for prod with restricted permissions
-   - Store prod secrets in separate GitHub environment
-   - Use environment-specific branch protections
-
-See `SOLUTION.md` for detailed architectural trade-offs.
+1. **State Workspace Segregation:** Utilize distinct remote S3 prefixes or physical environments subdirectories (`environments/dev/` vs `environments/prod/`).
+2. **Multi-AZ Auto Scaling:** Replace individual `aws_instance` primitives with an Elastic **Auto Scaling Group (ASG)** spanning at least two private subnets underneath the existing ALB target paths.
+3. **CI/CD Manual Approval Gates:** Implement specialized deployment environment protections inside GitHub Actions requiring mandatory sign-off approvals before changes are allowed to strike live Production infrastructure targets.
 
 ---
 
 ## 🔍 Troubleshooting
 
-### Health Check Failing
+### SSM Payload / Pipeline Configuration Errors
 
-```bash
-# 1. Check ALB target health
-aws elbv2 describe-target-health \
-  --target-group-arn arn:aws:elasticloadbalancing:...
+If your pipeline hangs or drops out during the `Configure EC2 via SSM` sequence, verify the target instance profile:
 
-# 2. SSH into instance (via Systems Manager Session Manager)
-aws ssm start-session --target i-1234567890abcdef0
-
-# 3. Check NGINX status
-sudo systemctl status nginx
-sudo nginx -t
-
-# 4. Check NGINX logs
-sudo tail -f /var/log/nginx/error.log
-```
-
-### Ansible Playbook Fails
-
-```bash
-# Re-run manually with verbose output
-cd ansible
-ansible-playbook -i <IP>, playbook.yml \
-  -u ubuntu \
-  -e "app_secret_env_var=..." \
-  --private-key ~/.ssh/key.pem \
-  -vvv
-```
-
-### Terraform State Corruption
-
-```bash
-# If state is corrupted, pull from S3
-aws s3 cp s3://rewards-dev-terraform-state/dev/terraform.tfstate .
-terraform refresh
-```
-
-### CloudWatch Agent Not Streaming Logs
-
-```bash
-# SSH into instance and check agent status
-sudo systemctl status amazon-cloudwatch-agent
-sudo /opt/aws/amazon-cloudwatch-agent/bin/amazon-cloudwatch-agent-ctl \
-  -a fetch-config \
-  -m ec2 \
-  -s
-
-# Check agent logs
-tail -f /opt/aws/amazon-cloudwatch-agent/logs/amazon-cloudwatch-agent.log
-```
+1. Ensure the EC2 instance carries an IAM role containing the managed policy `AmazonSSMManagedInstanceCore`.
+2. Confirm that the private subnet can resolve the AWS SSM API endpoints. Execute `aws ssm describe-instance-information` locally to verify if the server is checking in correctly.
 
 ---
 
-## 📚 Additional Resources
+**Last Updated:** June 5, 2026
 
-- [AWS VPC Best Practices](https://docs.aws.amazon.com/vpc/latest/userguide/VPC_Security.html)
-- [Terraform AWS Provider Documentation](https://registry.terraform.io/providers/hashicorp/aws/latest/docs)
-- [Ansible Best Practices](https://docs.ansible.com/ansible/latest/user_guide/playbooks_best_practices.html)
-- [GitHub Actions Security](https://docs.github.com/en/actions/security-guides)
-- [AWS Systems Manager Session Manager](https://docs.aws.amazon.com/systems-manager/latest/userguide/session-manager.html)
-- [CloudWatch Logs Insights](https://docs.aws.amazon.com/AmazonCloudWatch/latest/logs/AnalyzingLogData.html)
+**Maintained By:** Cloud Infrastructure Team
 
----
+**Status:** ✅ Production-Ready (Zero-SSH Perimeter)
 
-## 🤝 Contributing
+```
 
-1. Create feature branch: `git checkout -b feature/my-change`
-2. Make changes and commit: `git commit -m "feat: describe change"`
-3. Push and create PR: `git push origin feature/my-change`
-4. Wait for CI/CD approval
-5. Merge to `main`
-6. Changes automatically deploy to dev
-
----
-
-## 📄 License
-
-This infrastructure code is provided as-is for the Rewards platform team.
-
----
-
-**Last Updated:** June 4, 2026  
-**Maintained By:** Cloud Infrastructure Team  
-**Status:** ✅ Production-Ready (with ACM cert)
+```
