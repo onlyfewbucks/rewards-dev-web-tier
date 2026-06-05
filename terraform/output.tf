@@ -19,7 +19,7 @@ output "cloudwatch_log_group" {
 }
 
 output "cleanup_instructions" {
-  value = <<-EOT
+  value       = <<-EOT
     To clean up all resources:
     
     1. Remove S3 backend state:

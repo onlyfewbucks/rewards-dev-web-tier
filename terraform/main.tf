@@ -305,18 +305,18 @@ data "aws_ami" "ubuntu" {
 resource "aws_instance" "web" {
   ami                         = data.aws_ami.ubuntu.id
   instance_type               = "t3.micro"
-  subnet_id                   = aws_subnet.private_1.id  # SECURITY: Private subnet
+  subnet_id                   = aws_subnet.private_1.id # SECURITY: Private subnet
   vpc_security_group_ids      = [aws_security_group.web.id]
   iam_instance_profile        = aws_iam_instance_profile.ec2_profile.name
-  associate_public_ip_address = false  # SECURITY: No public IP
+  associate_public_ip_address = false # SECURITY: No public IP
 
   metadata_options {
     http_endpoint               = "enabled"
-    http_tokens                 = "required"  # SECURITY: IMDSv2 only
+    http_tokens                 = "required" # SECURITY: IMDSv2 only
     http_put_response_hop_limit = 1
   }
 
-  monitoring = true  # Enable detailed CloudWatch monitoring
+  monitoring = true # Enable detailed CloudWatch monitoring
 
   tags = { Name = "rewards-dev-web-server" }
 
