@@ -14,6 +14,8 @@ jobs:
       AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
       AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
       AWS_DEFAULT_REGION: ${{secrets.AWS_DEFAULT_REGION}}
+      TF_VAR_initial_app_secret_value: ${{secrets.APP_SECRET }}
+      TF_VAR_acm_certificate_arn: ${{ secrets.ACM_CERTIFICATE_ARN }}
       TF_RENAME_PROVIDERS: "1" # Instructs TF to automatically align provider namespaces if needed
 
     steps:
@@ -32,7 +34,7 @@ jobs:
         run: terraform -chdir=terraform init
 
       - name: Generate Speculative Execution Plan
-        run: terraform -chdir=terraform plan -var="key_name=dummy-key"
+        run: terraform -chdir=terraform plan -var="aws_key_pair_name=dummy-key"
 
   deploy-dev:
     name: Apply Infrastructure & Run Configuration
@@ -40,9 +42,11 @@ jobs:
     if: github.ref == 'refs/heads/main' && github.event_name == 'push'
     runs-on: ubuntu-latest
     env:
-      AWS_ACCESS_KEY_ID: ${{ secrets.AWS_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+      AWS_ACCESS_KEY_ID: ${{secrets.AWS_ACCESS_KEY_ID}}
+      AWS_SECRET_ACCESS_KEY: ${{ secrets.AWS_SECRET_ACCESS_KEY}}
       AWS_DEFAULT_REGION: ${{secrets.AWS_DEFAULT_REGION}}
+      TF_VAR_initial_app_secret_value: ${{secrets.APP_SECRET}}
+      TF_VAR_acm_certificate_arn: ${{ secrets.ACM_CERTIFICATE_ARN }}
 
     steps:
       - name: Checkout Code Base

@@ -11,21 +11,25 @@
           - nginx
           - ufw
           - curl
+          - awscli
+          - amazon-cloudwatch-agent
         state: present
         update_cache: yes
 
-    - name: Apply simple UFW firewall security baseline
+    - name: Apply UFW firewall security baseline
       ufw:
         rule: allow
         port: "{{ item }}"
         proto: tcp
       loop:
-        - '22'
         - '80'
+        - '443'
 
     - name: Enable UFW firewall
       ufw:
         state: enabled
+        default: deny
+        direction: incoming
 
     - name: Ensure Nginx app configuration directory exists
       file:
@@ -39,7 +43,7 @@
       copy:
         dest: /var/www/rewards/health
         content: |
-          {"service":"rewards","status":"ok","commit":"{{ lookup('env', 'GITHUB_SHA') | default('local-dev', true) }}","region":"eu-west-1"}
+          {"service":"rewards","status":"ok","commit":"{{ lookup('env', 'GITHUB_SHA') | default('local-dev', true) }}","region":"{{ aws_region }}"}
         owner: www-data
         group: www-data
         mode: '0644'
@@ -51,6 +55,7 @@
         owner: root
         group: root
         mode: '0644'
+      notify: Restart Nginx
 
     - name: Enable Nginx rewards configuration site
       file:
@@ -62,15 +67,97 @@
       file:
         path: /etc/nginx/sites-enabled/default
         state: absent
+      notify: Restart Nginx
 
-    - name: Simulate loading APP_SECRET to safe server location
+    - name: Create secure directory for app secrets
+      file:
+        path: /etc/rewards
+        state: directory
+        owner: root
+        group: www-data
+        mode: '0750'
+
+    - name: Load APP_SECRET to secure server location
       copy:
-        dest: /etc/rewards_secret.env
+        dest: /etc/rewards/secret.env
         content: "APP_SECRET={{ app_secret_env_var }}"
         owner: root
         group: www-data
         mode: '0640'
+      no_log: true
       notify: Restart Nginx
+
+    - name: Create Nginx systemd override for secrets
+      copy:
+        dest: /etc/systemd/system/nginx.service.d/override.conf
+        content: |
+          [Service]
+          EnvironmentFile=/etc/rewards/secret.env
+        owner: root
+        group: root
+        mode: '0644'
+      notify: Restart Nginx
+
+    - name: Configure CloudWatch agent for log streaming
+      template:
+        src: templates/cloudwatch-config.json.j2
+        dest: /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Start and enable CloudWatch agent
+      systemd:
+        name: amazon-cloudwatch-agent
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Configure log rotation for NGINX
+      copy:
+        dest: /etc/logrotate.d/nginx
+        content: |
+          /var/log/nginx/*.log {
+            daily
+            rotate 7
+            compress
+            delaycompress
+            notifempty
+            create 0640 www-data adm
+            sharedscripts
+            postrotate
+              if systemctl is-active --quiet nginx; then
+                systemctl reload nginx > /dev/null 2>&1
+              fi
+            endscript
+          }
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Enable Nginx service and ensure it starts on reboot
+      systemd:
+        name: nginx
+        state: started
+        enabled: yes
+        daemon_reload: yes
+
+    - name: Harden Nginx configuration
+      lineinfile:
+        path: /etc/nginx/nginx.conf
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+        state: present
+      loop:
+        - { regexp: "^\\s*#?\\s*server_tokens", line: "    server_tokens off;" }
+        - { regexp: "^\\s*#?\\s*client_max_body_size", line: "    client_max_body_size 1m;" }
+      notify: Restart Nginx
+
+    - name: Verify NGINX configuration
+      command: nginx -t
+      register: nginx_test
+      failed_when: nginx_test.rc != 0
+      changed_when: false
 
   handlers:
     - name: Restart Nginx
